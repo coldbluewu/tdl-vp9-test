@@ -37,6 +37,8 @@ func IsImage(mime string) bool {
 }
 
 // GetMP4Info returns duration, width, height, error
+// Test patch: original tdl accepted only H.264 MP4 tracks. This fallback also
+// accepts MP4 tracks with width/height metadata, including VP9-in-MP4.
 func GetMP4Info(r io.ReadSeeker) (int, int, int, error) {
 	d := mp4.CreateMp4Demuxer(r)
 
@@ -45,12 +47,22 @@ func GetMP4Info(r io.ReadSeeker) (int, int, int, error) {
 		return 0, 0, 0, err
 	}
 
+	info := d.GetMp4Info()
+	duration := int(info.Duration / info.Timescale)
+
+	// Preserve original behavior when H.264 exists.
 	for _, track := range tracks {
 		if track.Cid == mp4.MP4_CODEC_H264 {
-			info := d.GetMp4Info()
-			return int(info.Duration / info.Timescale), int(track.Width), int(track.Height), nil
+			return duration, int(track.Width), int(track.Height), nil
 		}
 	}
 
-	return 0, 0, 0, fmt.Errorf("no h264 track found")
+	// Fallback for VP9/other MP4 video tracks.
+	for _, track := range tracks {
+		if track.Width > 0 && track.Height > 0 {
+			return duration, int(track.Width), int(track.Height), nil
+		}
+	}
+
+	return 0, 0, 0, fmt.Errorf("no video track with width/height found")
 }
